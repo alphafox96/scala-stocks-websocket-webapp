@@ -43,8 +43,12 @@ class UserActor @Inject()(id: String, stocksActor: ActorRef[GetStocks])(implicit
 
   private val jsonSink: Sink[JsValue, Future[Done]] = Sink.foreach { json =>
     // When the user types in a stock in the upper right corner, this is triggered,
+    val action = (json \ "action").as[String]
     val symbol = (json \ "symbol").as[StockSymbol]
-    addStocks(Set(symbol))
+    action match {
+        case "add" => addStocks(Set(symbol))
+        case "remove" => removeStocks(Set(symbol))
+    }
   }
 
   def behavior: Behavior[Message] = {
@@ -139,6 +143,35 @@ class UserActor @Inject()(id: String, stocksActor: ActorRef[GetStocks])(implicit
 
     // Pull out the kill switch so we can stop it when we want to unwatch a stock.
     stocksMap += (stock.symbol -> killSwitch)
+  }
+
+  private def removeStocks(symbols: Set[StockSymbol]): Future[Unit] = {
+      import akka.actor.typed.scaladsl.AskPattern._
+      // Ask the stocksActor for a stream containing these stocks.
+      val future = stocksActor.ask(replyTo => GetStocks(symbols, replyTo))
+
+      // when we get the response back, we want to turn that into a flow by creating a single
+      // source and a single sink, so we merge all of the stock sources together into one by
+      // pointing them to the hubSink, so we can add them dynamically even after the flow
+      // has started.
+      future.map { (newStocks: Stocks) =>
+        newStocks.stocks.foreach { stock =>
+          if (stocksMap.contains(stock.symbol)) {
+            log.info("Removing stock {}", stock)
+            removeStock(stock)
+          }
+        }
+      }
+  }
+
+  private def removeStock(stock: Stock): Unit = {
+      val removeSource = stock.remove.map(sr => Json.toJson(sr))
+      removeSource.runWith(hubSink)
+
+      stocksMap.get(stock.symbol).foreach { killSwitch =>
+          killSwitch.shutdown()
+      }
+      stocksMap -= stock.symbol
   }
 
   def unwatchStocks(symbols: Set[StockSymbol]): Unit = {

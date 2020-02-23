@@ -5,16 +5,17 @@ import akka.stream.ThrottleMode
 import akka.stream.scaladsl.Source
 
 import scala.concurrent.duration._
+import yahoofinance._
 
 /**
  * A stock is a source of stock quotes and a symbol.
  */
 class Stock(val symbol: StockSymbol) {
-  private val stockQuoteGenerator: StockQuoteGenerator = new FakeStockQuoteGenerator(symbol)
+  private val stockQuoteGenerator: StockQuoteGenerator = new YahooStockQuoteGenerator(symbol)
 
   private val source: Source[StockQuote, NotUsed] = {
     Source.unfold(stockQuoteGenerator.seed) { (last: StockQuote) =>
-      val next = stockQuoteGenerator.newQuote(last)
+      val next = stockQuoteGenerator.newQuote(last.symbol)
       Some(next, next)
     }
   }
@@ -31,8 +32,12 @@ class Stock(val symbol: StockSymbol) {
    */
   def update: Source[StockUpdate, NotUsed] = {
     source
-      .throttle(elements = 1, per = 75.millis, maximumBurst = 1, ThrottleMode.shaping)
+      .throttle(elements = 1, per = 500.millis, maximumBurst = 1, ThrottleMode.shaping)
       .map(sq => new StockUpdate(sq.symbol, sq.price))
+  }
+
+  def remove: Source[StockRemove, NotUsed] = {
+    source.map(_ => new StockRemove(symbol)).take(1)
   }
 
   override val toString: String = s"Stock($symbol)"
@@ -40,18 +45,20 @@ class Stock(val symbol: StockSymbol) {
 
 trait StockQuoteGenerator {
   def seed: StockQuote
-  def newQuote(lastQuote: StockQuote): StockQuote
+  def newQuote(lastQuote: StockSymbol): StockQuote
 }
 
-class FakeStockQuoteGenerator(symbol: StockSymbol) extends StockQuoteGenerator {
+class YahooStockQuoteGenerator(symbol: StockSymbol) extends StockQuoteGenerator {
   private def random: Double = scala.util.Random.nextDouble
 
   def seed: StockQuote = {
     StockQuote(symbol, StockPrice(random * 800))
   }
 
-  def newQuote(lastQuote: StockQuote): StockQuote = {
-    StockQuote(symbol, StockPrice(lastQuote.price.raw * (0.95 + (0.1 * random))))
+  def newQuote(symbol: StockSymbol): StockQuote = {
+    // get raw value for stock right now using yahoo finance api
+    val curPrice: Double = YahooFinance.get(symbol.toString).getQuote().getPrice().toString().toDouble
+    StockQuote(symbol, StockPrice(curPrice))
   }
 }
 
@@ -107,6 +114,19 @@ object StockHistory {
       "history" -> history.prices
     )
   }
+}
+
+case class StockRemove(symbol: StockSymbol)
+
+object StockRemove {
+    import play.api.libs.json._ // Combinator Syntax
+
+    implicit val stockRemoveWrites: Writes[StockRemove] = new Writes[StockRemove] {
+        override def writes(remove: StockRemove): JsValue = Json.obj(
+            "type" -> "stockremove",
+            "symbol" -> remove.symbol
+        )
+    }
 }
 
 // JSON presentation class for stock update

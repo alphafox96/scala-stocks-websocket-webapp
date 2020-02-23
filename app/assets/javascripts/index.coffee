@@ -1,21 +1,27 @@
 $ ->
-  ws = new WebSocket $("body").data("ws-url")
-  ws.onmessage = (event) ->
-    message = JSON.parse event.data
-    switch message.type
-      when "stockhistory"
-        populateStockHistory(message)
-      when "stockupdate"
-        updateStockChart(message)
-      else
-        console.log(message)
+    ws = new WebSocket $("body").data("ws-url")
+    ws.onmessage = (event) ->
+        message = JSON.parse event.data
+        switch message.type
+            when "stockhistory"
+                populateStockHistory(message)
+                $(".removesymbolform").click (event) ->
+                    event.preventDefault()
+                    # send the message to watch the stock
+                    ws.send(JSON.stringify({action: "remove", symbol: event.target.id}))
+            when "stockupdate"
+                updateStockChart(message)
+            when "stockremove"
+                removeStockChart(message)
+            else
+                console.log(message)
 
-  $("#addsymbolform").submit (event) ->
-    event.preventDefault()
-    # send the message to watch the stock
-    ws.send(JSON.stringify({symbol: $("#addsymboltext").val()}))
-    # reset the form
-    $("#addsymboltext").val("")
+    $("#addsymbolform").submit (event) ->
+        event.preventDefault()
+        # send the message to watch the stock
+        ws.send(JSON.stringify({action: "add", symbol: $("#addsymboltext").val()}))
+        # reset the form
+        $("#addsymboltext").val("")
 
 getPricesFromArray = (data) ->
   (v[1] for v in data)
@@ -39,17 +45,23 @@ getAxisMax = (data) ->
   Math.max.apply(Math, data) * 1.1
 
 populateStockHistory = (message) ->
+  console.log(message)
   chart = $("<div>").addClass("chart").prop("id", message.symbol)
   chartHolder = $("<div>").addClass("chart-holder").append(chart)
-  chartHolder.append($("<p>").text("real stock values"))
+  price = $("<h2>").addClass("price").prop("id", "price-"+message.symbol).text("$"+message.history[0])
+  chartHolder.append(price)
+  removeBtn = $("<button>").addClass("btn").addClass("removesymbolform").prop("id", message.symbol).text("Remove Stock")
+  chartHolder.append(removeBtn)
   detailsHolder = $("<div>").addClass("details-holder")
   flipper = $("<div>").addClass("flipper").append(chartHolder).append(detailsHolder).attr("data-content", message.symbol)
-  flipContainer = $("<div>").addClass("flip-container").append(flipper)
+  flipContainer = $("<div>").addClass("flip-container").prop("id", "flipper-"+message.symbol).append(flipper)
   $("#stocks").prepend(flipContainer)
   plot = chart.plot([getChartArray(message.history)], getChartOptions(message.history)).data("plot")
 
 updateStockChart = (message) ->
   if ($("#" + message.symbol).size() > 0)
+    console.log($("#price-"+message.symbol))
+    $("#price-"+message.symbol).text(message.price)
     plot = $("#" + message.symbol).data("plot")
     data = getPricesFromArray(plot.getData()[0].data)
     data.shift()
@@ -64,6 +76,14 @@ updateStockChart = (message) ->
       plot.setupGrid()
     # redraw the chart
     plot.draw()
+
+removeStockChart = (message) ->
+    console.log(message)
+    # find element with id == symbol and class == flipper-container
+    # remove this element from the dom
+    id = "#flipper-" + message.symbol
+    console.log(id)
+    $(id).remove()
 
 # handleFlip = (container) ->
 #   if (container.hasClass("flipped"))
