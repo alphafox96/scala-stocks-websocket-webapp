@@ -15,7 +15,6 @@ lazy val root = (project in file("."))
       "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test,
       "org.scalatestplus.play" %% "scalatestplus-play" % "5.0.0" % Test,
       "org.awaitility" % "awaitility" % "4.0.1" % Test,
-      // https://mvnrepository.com/artifact/com.yahoofinance-api/YahooFinanceAPI
       "com.yahoofinance-api" % "YahooFinanceAPI" % "3.15.0"
 
     ),
